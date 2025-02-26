@@ -1,0 +1,11 @@
+consumer_key= 'z9mhZJ1NZvWZFPqd71vlt8v2w'
+consumer_secret= 'wPalKfffyy9POqIctevy8w6b8uOeeex8F43ujBxp7WTUh1r0f5'
+
+access_token='1819662699040776192-WClnaITnkRSqAmlhlEhseLox4t7iGW'
+access_token_secret='vojX875tTFm6HRNnhCnMFvGCJceph5JbWsnpojwM0ivwP'
+REDDIT_CLIENT_ID='U5PZhrjV4qSZNlnRAUwHIA'
+REDDIT_CLIENT_SECRET='_4Wvx9UCZPWpqUe8gTOqwh-lOi_QpQ'
+REDDIT_USER_AGENT='stock_tweet_sentiment_analysis_by_user_projectk44'
+
+num_of_tweets = int(300)
+NEWS_API_KEY = '25e350f8a2dc4b929a1ffcf7001ab1fe'
