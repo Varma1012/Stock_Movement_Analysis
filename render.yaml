@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: rooster-analyzer
+    env: python
+    pythonVersion: 3.10.0
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
