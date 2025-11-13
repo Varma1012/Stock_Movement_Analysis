@@ -419,6 +419,50 @@
                             </div>
                         </div>
                     </div>
+                    <div class="col-lg-6">
+                        <div class="card">
+                            <div class="card-title mt-5 d-flex justify-content-between align-items-center">
+                                <h4>ACTUAL vs PREDICTED {{ quote }} PRICE FOR THE LAST 10 DAYS</h4>
+
+                                <form method="GET" action="/history/{{ quote }}" class="form-inline">
+                                    <label for="selected_date" class="mr-2">Select Prediction Date:</label>
+                                    <select name="selected_date" id="selected_date" class="form-control" onchange="this.form.submit()">
+                                        {% for d in prediction_dates %}
+                                            <option value="{{ d }}" {% if d == selected_date %}selected{% endif %}>{{ d }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </form>
+
+                            </div>
+
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered">
+                                        <thead class="thead-dark">
+                                            <tr>
+                                                <th>Date</th>
+                                                <th>Actual Close</th>
+                                                <th>Predicted Close</th>
+                                                <th>Error (%)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for date, actual, pred in past_10_data %}
+                                            <tr class="{% if selected_date == date %}table-info{% endif %}">
+                                                <td>{{ date }}</td>
+                                                <td>{{ actual | round(2) }}</td>
+                                                <td>{{ pred | round(2) }}</td>
+                                                <td>{{ ((actual - pred) / actual * 100) | abs | round(2) }}%</td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+
              
 
                     <!-- OVERALL POLARITY -->

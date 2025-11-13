@@ -46,6 +46,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.trend import MACD, EMAIndicator
 
+
 #***************** FLASK *****************************
 app = Flask(__name__)
 
@@ -71,10 +72,7 @@ class User(db.Model, UserMixin):
     username=db.Column(db.String(20),nullable=False,unique=True)
     password=db.Column(db.String(80),nullable=False)
     
-with app.app_context():
-    # Perform database operations
-    db.create_all()  # Create tables based on models
-    users = db.session.query(User).all()
+
 
 class RegisterForm (FlaskForm):
 
@@ -99,18 +97,21 @@ class LoginForm(FlaskForm):
 
     submit=SubmitField("Login")
 
+class Prediction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    quote = db.Column(db.String(10), nullable=False)
+    date = db.Column(db.String(20), nullable=False)  # the stock date (from dataset)
+    actual_close = db.Column(db.Float, nullable=False)
+    predicted_close = db.Column(db.Float, nullable=False)
+    error_percent = db.Column(db.Float, nullable=False)
+    prediction_date = db.Column(db.String(20), nullable=False)  # ✅ the day this prediction was made
 
 
-
-
-
-
-
-
-
-
-
-
+with app.app_context():
+    
+    # Perform database operations
+    db.create_all()  # Create tables based on models
+    users = db.session.query(User).all()
 
 
 #To control caching so as to save and retrieve plot figs on client side
@@ -162,6 +163,39 @@ def register():
         db.session.commit() 
         return redirect(url_for('login'))
     return render_template('register.html',form=form)
+
+@app.route('/history/<quote>', methods=['GET'])
+def history(quote):
+    selected_date = request.args.get('selected_date')
+
+    # Get unique prediction dates for dropdown
+    prediction_dates = (
+        db.session.query(Prediction.prediction_date)
+        .filter_by(quote=quote)
+        .distinct()
+        .order_by(Prediction.prediction_date.desc())
+        .all()
+    )
+    prediction_dates = [d[0] for d in prediction_dates]
+
+    # Default to latest prediction if none selected
+    if not selected_date and prediction_dates:
+        selected_date = prediction_dates[0]
+
+    # Fetch data for that specific prediction date
+    past_10_data = (
+        Prediction.query.filter_by(quote=quote, prediction_date=selected_date)
+        .order_by(Prediction.date.asc())
+        .all()
+    )
+
+    return render_template(
+        'results.html',
+        quote=quote,
+        past_10_data=[(r.date, r.actual_close, r.predicted_close) for r in past_10_data],
+        selected_date=selected_date,
+        prediction_dates=prediction_dates
+    )
 
 
 
@@ -313,71 +347,65 @@ def insertintotable():
 
     #************* LSTM SECTION **********************
     def BLSTM_ALGO(df):
-    # Split data into training set and test set
-        dataset_train = df.iloc[0:int(0.8 * len(df)), :]
+        
+
+        # Ensure 'Date' column exists and is datetime
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+        else:
+            raise ValueError("DataFrame must contain a 'Date' column with trading dates.")
+
+        # Sort by date just in case
+        df = df.sort_values('Date').reset_index(drop=True)
+
+        # Split into training and test sets (80/20)
+        dataset_train = df.iloc[:int(0.8 * len(df)), :]
         dataset_test = df.iloc[int(0.8 * len(df)):, :]
 
-        # Prepare training set
-        training_set = df.iloc[:, 4:5].values  # Use the 'Close' price column
-        from sklearn.preprocessing import MinMaxScaler
-
-        # Feature Scaling
+        # Prepare training data using 'Close' price
+        training_set = df[['Close']].values
         scaler = MinMaxScaler(feature_range=(0, 1))
         training_set_scaled = scaler.fit_transform(training_set)
 
-        # Create data structure with 7 timesteps and 1 output
-        X_train = []
-        y_train = []
+        # Create data structure with 7 timesteps
+        X_train, y_train = [], []
         for i in range(7, len(training_set_scaled)):
             X_train.append(training_set_scaled[i-7:i, 0])
             y_train.append(training_set_scaled[i, 0])
-
-        # Convert lists to numpy arrays
         X_train, y_train = np.array(X_train), np.array(y_train)
+
+        # Prepare input for forecasting next day
         X_forecast = np.array(X_train[-1, 1:])
         X_forecast = np.append(X_forecast, y_train[-1])
-
-        # Reshape data
         X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))
         X_forecast = np.reshape(X_forecast, (1, X_forecast.shape[0], 1))
 
         # Build the Bidirectional LSTM model
-        model = Sequential()
-        model.add(Bidirectional(LSTM(units=50, return_sequences=True), input_shape=(X_train.shape[1], 1)))
-        model.add(Dropout(0.1))
-        model.add(Bidirectional(LSTM(units=50, return_sequences=True)))
-        model.add(Dropout(0.1))
-        model.add(Bidirectional(LSTM(units=50, return_sequences=True)))
-        model.add(Dropout(0.1))
-        model.add(Bidirectional(LSTM(units=50)))
-        model.add(Dropout(0.1))
-        model.add(Dense(units=1))
-
-        # Compile the model
+        model = Sequential([
+            Bidirectional(LSTM(50, return_sequences=True), input_shape=(X_train.shape[1], 1)),
+            Dropout(0.1),
+            Bidirectional(LSTM(50, return_sequences=True)),
+            Dropout(0.1),
+            Bidirectional(LSTM(50, return_sequences=True)),
+            Dropout(0.1),
+            Bidirectional(LSTM(50)),
+            Dropout(0.1),
+            Dense(1)
+        ])
         model.compile(optimizer='adam', loss='mean_squared_error')
 
         # Train the model
-        model.fit(X_train, y_train, epochs=25, batch_size=32)
+        model.fit(X_train, y_train, epochs=25, batch_size=32, verbose=0)
 
         # Prepare test set
-        real_stock_price = dataset_test.iloc[:, 4:5].values
-
-        # Combine train and test set
+        real_stock_price = dataset_test[['Close']].values
         dataset_total = pd.concat((dataset_train['Close'], dataset_test['Close']), axis=0)
-        testing_set = dataset_total[len(dataset_total) - len(dataset_test) - 7:].values
-        testing_set = testing_set.reshape(-1, 1)
-
-        # Feature Scaling
+        testing_set = dataset_total[len(dataset_total) - len(dataset_test) - 7:].values.reshape(-1, 1)
         testing_set = scaler.transform(testing_set)
 
-        # Create data structure for test set
-        X_test = []
-        for i in range(7, len(testing_set)):
-            X_test.append(testing_set[i-7:i, 0])
-        X_test = np.array(X_test)
-
-        # Reshape data
-        X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
+        # Create test data structure
+        X_test = [testing_set[i-7:i, 0] for i in range(7, len(testing_set))]
+        X_test = np.array(X_test).reshape(-1, 7, 1)
 
         # Predict stock prices
         predicted_stock_price = model.predict(X_test)
@@ -385,7 +413,7 @@ def insertintotable():
 
         # Plot results
         fig = plt.figure(figsize=(7.2, 4.8), dpi=65)
-        plt.plot(real_stock_price, label='Actual Price')  
+        plt.plot(real_stock_price, label='Actual Price')
         plt.plot(predicted_stock_price, label='Predicted Price')
         plt.legend(loc=4)
         plt.savefig('static/BLSTM.png')
@@ -394,41 +422,37 @@ def insertintotable():
         # Calculate RMSE
         error_Blstm = math.sqrt(mean_squared_error(real_stock_price, predicted_stock_price))
 
-        # Define the custom accuracy function
-        def custom_accuracy(y_true, y_pred, threshold=0.02):
-            # Calculate percentage error
-            error = np.abs((y_true - y_pred) / y_true)
-            # Count how many predictions are within the threshold
-            accurate_predictions = np.sum(error < threshold)
-            return accurate_predictions / len(y_true)
-
-        # Calculate accuracy
-        accuracy = custom_accuracy(real_stock_price, predicted_stock_price)
-        
-        # Forecasting the next day's price
+        # Forecast the next day's price
         forecasted_stock_price = model.predict(X_forecast)
         forecasted_stock_price = scaler.inverse_transform(forecasted_stock_price)
-        def accuracy_from_rmse(y_true, rmse):
-            """
-            Calculate accuracy based on RMSE as a percentage of the range of the target variable.
-            """
-            # Calculate range of true values (Close price range)
-            price_range = np.max(y_true) - np.min(y_true)
-            
-            # Calculate the percentage accuracy based on RMSE
-            accuracy = 100 * (1 - (rmse / price_range))
-            
-            return accuracy
-        accuracy=accuracy_from_rmse(real_stock_price, error_Blstm)
-        # Output results
         Blstm_pred = forecasted_stock_price[0, 0]
+
+        # Accuracy from RMSE as percentage
+        def accuracy_from_rmse(y_true, rmse):
+            price_range = np.max(y_true) - np.min(y_true)
+            return 100 * (1 - (rmse / price_range))
+        accuracy = accuracy_from_rmse(real_stock_price, error_Blstm)
+
+        # Get last 10 days of actual and predicted data
+        past_10_actual = real_stock_price[-10:].flatten()
+        past_10_pred = predicted_stock_price[-10:].flatten()
+
+        # ✅ Get corresponding last 10 trading dates from the actual test set
+        past_10_dates = dataset_test['Date'].iloc[-10:].dt.strftime('%Y-%m-%d').tolist()
+
+        # Combine into list of tuples (Date, Actual, Predicted)
+        past_10_data = list(zip(past_10_dates, past_10_actual, past_10_pred))
+
+        # Display results
         print("##############################################################################")
-        print("Tomorrow's Closing Price Prediction by Bidirectional LSTM: ", Blstm_pred)
-        print("Bidirectional LSTM RMSE:", error_Blstm)
-        print(f"Accuracy: {accuracy}%")
+        print(f"Tomorrow's Closing Price Prediction by Bidirectional LSTM: {Blstm_pred}")
+        print(f"Bidirectional LSTM RMSE: {error_Blstm}")
+        print(f"Accuracy: {accuracy:.2f}%")
         print("##############################################################################")
 
-        return Blstm_pred, error_Blstm
+        return Blstm_pred, error_Blstm, past_10_data
+
+    
 
     
     def calculate_indicators(df):
@@ -745,6 +769,10 @@ def insertintotable():
         #return global_polarity, post_titles, post_pol, pos, neg, neutral
    
 
+
+    
+
+
     def recommending(df, global_polarity,today_stock,mean):
         if today_stock.iloc[-1]['Close'] < mean:
             if global_polarity > 0:
@@ -803,7 +831,33 @@ def insertintotable():
 
 
         arima_pred, error_arima=ARIMA_ALGO(df)
-        Blstm_pred, error_Blstm=BLSTM_ALGO(df)
+        Blstm_pred, error_Blstm, past_10_data = BLSTM_ALGO(df)
+        # ✅ Store the last 10 days of BLSTM predicted data into the database
+        prediction_date = dt.datetime.today().strftime("%Y-%m-%d")
+        Prediction.query.filter_by(quote=quote, prediction_date=prediction_date).delete()
+
+        # Store each of the 10 predicted points in the database
+        for d, actual, pred in past_10_data:
+            error = abs((actual - pred) / actual * 100)
+            new_entry = Prediction(
+                quote=quote,
+                date=d,
+                actual_close=actual,
+                predicted_close=pred,
+                error_percent=error,
+                prediction_date=prediction_date  # ✅ store the run date
+            )
+            db.session.add(new_entry)
+
+        db.session.commit()
+        prediction_dates = [r[0] for r in db.session.query(Prediction.prediction_date.distinct()).filter_by(quote=quote).all()]
+
+        # get currently selected prediction date (from dropdown, default = latest)
+        selected_date = request.args.get("selected_date") or (prediction_dates[-1] if prediction_dates else None)
+
+        # get last 10-day data for that prediction_date
+        past_10_data = db.session.query(Prediction).filter_by(quote=quote, prediction_date=selected_date).order_by(Prediction.date.asc()).all()
+
         lstm_pred, error_lstm=LSTM_ALGO(df)
         df, lr_pred, forecast_set,mean,error_lr=LIN_REG_ALGO(df)
         # Twitter Lookup is no longer free in Twitter's v2 API
@@ -824,12 +878,12 @@ def insertintotable():
             print(i)
             forecast_set_dates1.append(i)
         print(forecast_set_dates1)
-        return render_template('results.html',quote=quote,arima_pred=round(arima_pred,2),lstm_pred=round(lstm_pred,2),Blstm_pred=round(Blstm_pred,2),
+    return render_template('results.html',quote=quote,arima_pred=round(arima_pred,2),lstm_pred=round(lstm_pred,2),Blstm_pred=round(Blstm_pred,2),
                                open_s=today_stock['Open'].to_string(index=False),
                                close_s=today_stock['Close'].to_string(index=False),adj_close=today_stock['Adj Close'].to_string(index=False),
                                tw_list=tw_list,tw_pol=tw_pol,idea=idea,decision=decision,high_s=today_stock['High'].to_string(index=False),
                                low_s=today_stock['Low'].to_string(index=False),vol=today_stock['Volume'].to_string(index=False),
-                               forecast_set=forecast_set,forecast_set_dates1=forecast_set_dates1,error_lstm=round(error_lstm,2),error_Blstm=round(error_Blstm,2),error_arima=round(error_arima,2))
+                               forecast_set=forecast_set,forecast_set_dates1=forecast_set_dates1,error_lstm=round(error_lstm,2),error_Blstm=round(error_Blstm,2),error_arima=round(error_arima,2),past_10_data=[(r.date, r.actual_close, r.predicted_close) for r in past_10_data])
 if __name__ == '__main__':
    app.run()
    
