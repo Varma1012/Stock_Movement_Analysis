@@ -5,8 +5,8 @@ Flask-Login==0.6.3
 Flask-SQLAlchemy==3.1.1
 Flask-WTF==1.2.2
 gunicorn==22.0.0
-Flask-Bcrypt
-alpha_vantage
+Flask-Bcrypt==1.0.1
+alpha_vantage==3.0.0
 # --- Utilities ---
 bcrypt==4.1.3
 requests==2.32.3
