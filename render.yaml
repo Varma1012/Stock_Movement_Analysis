@@ -2,6 +2,11 @@ services:
   - type: web
     name: rooster-analyzer
     env: python
-    pythonVersion: 3.10.0
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      echo "Installing Python 3.10 manually..."
+      pyenv install -s 3.10.14
+      pyenv global 3.10.14
+      python -V
+      pip install --upgrade pip setuptools wheel
+      pip install -r requirements.txt
     startCommand: gunicorn app:app
