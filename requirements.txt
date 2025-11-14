@@ -22,5 +22,5 @@ ta==0.11.0
 textblob==0.17.1
 tweepy==4.14.0
 WTForms==3.2.1
-yfinance==0.2.50
+yfinance==0.2.66
 gunicorn==21.2.0
